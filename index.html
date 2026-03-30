@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propiedades La Plata</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f5f5f0;
+    color: #1a1a1a;
+    min-height: 100vh;
+  }
+
+  /* ── Modal clave ── */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 340px;
+  }
+  .modal h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  .modal p  { font-size: 14px; color: #666; line-height: 1.5; margin-bottom: 20px; }
+  .modal input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    font-size: 16px;
+    margin-bottom: 12px;
+    font-family: inherit;
+  }
+  .modal input:focus { outline: none; border-color: #1a1a1a; }
+  .modal button {
+    width: 100%;
+    padding: 13px;
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .modal-error { font-size: 12px; color: #e03131; margin-bottom: 10px; display: none; }
+
+  /* ── Header ── */
+  header {
+    background: #fff;
+    border-bottom: 1px solid #e8e8e8;
+    padding: 12px 16px;
+    position: sticky; top: 0; z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-left h1 { font-size: 17px; font-weight: 600; }
+  .header-left p  { font-size: 12px; color: #888; margin-top: 1px; }
+  .btn-clave {
+    font-size: 12px;
+    color: #888;
+    background: #f5f5f5;
+    border: 1px solid #e8e8e8;
+    border-radius: 20px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    background: #fff;
+    border-bottom: 1px solid #e8e8e8;
+    position: sticky; top: 57px; z-index: 9;
+  }
+  .tab {
+    flex: 1; padding: 12px 0;
+    text-align: center;
+    font-size: 13px; font-weight: 500; color: #888;
+    cursor: pointer; border: none; background: transparent;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+  .fav-badge {
+    display: inline-block;
+    background: #ff3b30; color: #fff;
+    font-size: 10px; font-weight: 700;
+    padding: 1px 5px; border-radius: 10px;
+    margin-left: 4px; vertical-align: middle;
+  }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    display: flex; gap: 8px;
+    padding: 12px 16px;
+    background: #fff; border-bottom: 1px solid #e8e8e8;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .chip {
+    white-space: nowrap; font-size: 12px;
+    padding: 6px 12px; border-radius: 20px;
+    border: 1px solid #ddd; background: #fff;
+    cursor: pointer; color: #444;
+  }
+  .chip.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+  /* ── Stats ── */
+  .stats { display: flex; gap: 8px; padding: 12px 16px; }
+  .stat {
+    flex: 1; background: #fff; border-radius: 10px;
+    padding: 10px 12px; text-align: center; border: 1px solid #e8e8e8;
+  }
+  .stat-num { font-size: 22px; font-weight: 600; }
+  .stat-lbl { font-size: 11px; color: #888; margin-top: 2px; }
+
+  /* ── Cards ── */
+  .lista { padding: 0 16px 80px; }
+  .card {
+    background: #fff; border-radius: 12px;
+    border: 1px solid #e8e8e8; margin-bottom: 12px; overflow: hidden;
+  }
+  .card.es-fav { border-color: #ffb3b8; }
+  .card-img { width: 100%; height: 180px; object-fit: cover; background: #f0f0f0; display: block; }
+  .card-no-img {
+    width: 100%; height: 100px; background: #f0f0f0;
+    display: flex; align-items: center; justify-content: center; font-size: 32px;
+  }
+  .card-body { padding: 12px 14px; }
+  .card-portal {
+    display: inline-block; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 3px 8px; border-radius: 20px; margin-bottom: 6px;
+  }
+  .portal-zp { background: #e8f4fd; color: #0a5c96; }
+  .portal-ap { background: #eafbf2; color: #0a6633; }
+  .portal-mh { background: #fff5e6; color: #8a4f00; }
+  .portal-im { background: #fce8f5; color: #7a1060; }
+  .card-titulo { font-size: 14px; font-weight: 600; margin-bottom: 4px; line-height: 1.4; }
+  .card-dir    { font-size: 12px; color: #666; margin-bottom: 8px; }
+  .card-footer { display: flex; align-items: center; justify-content: space-between; }
+  .card-precio { font-size: 18px; font-weight: 700; }
+  .card-m2     { font-size: 12px; color: #888; }
+  .card-apto   { font-size: 11px; background: #eafbf2; color: #0a6633; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
+  .card-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-ver {
+    flex: 1; text-align: center; padding: 9px; border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    background: #1a1a1a; color: #fff; text-decoration: none; display: block;
+  }
+  .btn-fav {
+    width: 42px; height: 38px; border-radius: 8px;
+    border: 1px solid #e8e8e8; background: #fff;
+    font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .btn-fav.guardado { background: #fff0f0; border-color: #ffb3b8; }
+  .nota-wrap { margin-top: 10px; }
+  textarea.nota-fav {
+    width: 100%; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid #e8e8e8;
+    font-size: 13px; font-family: inherit; color: #1a1a1a;
+    background: #fafafa; resize: none;
+  }
+  textarea.nota-fav:focus { outline: none; border-color: #bbb; background: #fff; }
+
+  /* ── FAB ── */
+  .fab {
+    position: fixed; bottom: 24px; right: 20px;
+    background: #1a1a1a; color: #fff; border: none;
+    border-radius: 50px; padding: 14px 20px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .fab:active { transform: scale(0.97); }
+
+  /* ── Misc ── */
+  .empty { text-align: center; padding: 60px 20px; color: #888; }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty p { font-size: 15px; }
+  .loading { text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: #1a1a1a; color: #fff; padding: 10px 20px;
+    border-radius: 20px; font-size: 13px; opacity: 0;
+    transition: opacity 0.3s; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+  .nueva-badge {
+    display: inline-block; background: #ff3b30; color: #fff;
+    font-size: 10px; font-weight: 700; padding: 2px 6px;
+    border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  #panel-favoritos { display: none; }
+  #panel-favoritos.visible { display: block; }
+  #panel-busqueda.oculto { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Modal clave personal -->
+<div class="modal-overlay" id="modal-clave">
+  <div class="modal">
+    <h2>🔑 Tu clave personal</h2>
+    <p>Elegí una palabra o frase corta para identificarte. Con la misma clave accedés a tus guardados desde cualquier dispositivo.</p>
+    <input type="text" id="input-clave" placeholder="Ej: maria2024, mi-casa..." maxlength="40" autocomplete="off" autocapitalize="none" />
+    <div class="modal-error" id="modal-error">Ingresá al menos 3 caracteres</div>
+    <button onclick="confirmarClave()">Entrar</button>
+  </div>
+</div>
+
+<header>
+  <div class="header-left">
+    <h1>🏠 Propiedades La Plata</h1>
+    <p>Casas · Hasta USD 100.000 · Apto banco / crédito</p>
+  </div>
+  <button class="btn-clave" id="btn-clave-header" onclick="pedirClave()" style="display:none">
+    🔑 <span id="label-clave"></span>
+  </button>
+</header>
+
+<div class="tabs">
+  <button class="tab active" id="tab-busqueda" onclick="cambiarTab('busqueda')">Búsqueda</button>
+  <button class="tab" id="tab-favoritos" onclick="cambiarTab('favoritos')">
+    Guardados <span class="fav-badge" id="fav-badge" style="display:none">0</span>
+  </button>
+</div>
+
+<!-- Panel búsqueda -->
+<div id="panel-busqueda">
+  <div class="toolbar">
+    <button class="chip active" onclick="filtrar('todos', this)">Todos</button>
+    <button class="chip" onclick="filtrar('Zonaprop', this)">Zonaprop</button>
+    <button class="chip" onclick="filtrar('Argenprop', this)">Argenprop</button>
+    <button class="chip" onclick="filtrar('Inmobusqueda', this)">Inmobusqueda</button>
+    <button class="chip" onclick="filtrar('Mashogar', this)">Mashogar</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-num" id="stat-total">—</div><div class="stat-lbl">Propiedades</div></div>
+    <div class="stat"><div class="stat-num" id="stat-nuevas">—</div><div class="stat-lbl">Hoy nuevas</div></div>
+    <div class="stat"><div class="stat-num">4</div><div class="stat-lbl">Portales</div></div>
+  </div>
+  <div class="lista" id="lista"><div class="loading">Cargando propiedades...</div></div>
+  <button class="fab" onclick="actualizar()">
+    <span id="fab-icon">↻</span><span id="fab-txt">Actualizar</span>
+  </button>
+</div>
+
+<!-- Panel favoritos -->
+<div id="panel-favoritos">
+  <div class="lista" id="lista-favs" style="padding-top:16px">
+    <div class="loading">Cargando guardados...</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let todasLasProps = [];
+let favIds = new Set();
+let filtroActual = 'todos';
+let claveActual = '';
+const HOY = new Date().toISOString().slice(0, 10);
+
+// ── Clave ─────────────────────────────────────────────────────────────────────
+function getClave() { return localStorage.getItem('inmo_clave') || ''; }
+function setClave(c) { localStorage.setItem('inmo_clave', c); }
+
+function pedirClave() {
+  document.getElementById('modal-clave').classList.add('visible');
+  setTimeout(() => document.getElementById('input-clave').focus(), 100);
+}
+
+function confirmarClave() {
+  const val = document.getElementById('input-clave').value.trim().toLowerCase().replace(/\s+/g, '-');
+  const err = document.getElementById('modal-error');
+  if (val.length < 3) { err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  setClave(val);
+  claveActual = val;
+  document.getElementById('modal-clave').classList.remove('visible');
+  document.getElementById('label-clave').textContent = val;
+  document.getElementById('btn-clave-header').style.display = 'flex';
+  cargarFavIds();
+}
+
+document.getElementById('input-clave').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmarClave();
+});
+
+// ── Favoritos ─────────────────────────────────────────────────────────────────
+async function cargarFavIds() {
+  if (!claveActual) return;
+  try {
+    const r = await fetch(`/api/favoritos/${encodeURIComponent(claveActual)}`);
+    const data = await r.json();
+    favIds = new Set(data.map(f => f.id));
+    actualizarBadge();
+  } catch {}
+}
+
+async function toggleFav(propId) {
+  if (!claveActual) { pedirClave(); return; }
+  try {
+    const r = await fetch(`/api/favoritos/${encodeURIComponent(claveActual)}/${encodeURIComponent(propId)}`, { method: 'POST' });
+    const data = await r.json();
+    if (data.guardado) {
+      favIds.add(propId);
+      mostrarToast('❤ Guardado en todos tus dispositivos');
+    } else {
+      favIds.delete(propId);
+      mostrarToast('Eliminado de guardados');
+    }
+    actualizarBadge();
+    // actualizar botón visualmente
+    const btn = document.querySelector(`.btn-fav[data-id="${propId}"]`);
+    if (btn) {
+      btn.textContent = data.guardado ? '❤' : '🤍';
+      btn.classList.toggle('guardado', data.guardado);
+      btn.closest('.card').classList.toggle('es-fav', data.guardado);
+      const nw = btn.closest('.card').querySelector('.nota-wrap');
+      if (nw) nw.style.display = data.guardado ? 'block' : 'none';
+    }
+  } catch { mostrarToast('Error al guardar'); }
+}
+
+async function guardarNota(propId, texto) {
+  if (!claveActual) return;
+  try {
+    await fetch(`/api/favoritos/${encodeURIComponent(claveActual)}/${encodeURIComponent(propId)}/nota`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nota: texto })
+    });
+  } catch {}
+}
+
+function actualizarBadge() {
+  const n = favIds.size;
+  const b = document.getElementById('fav-badge');
+  b.textContent = n;
+  b.style.display = n > 0 ? 'inline-block' : 'none';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function portalClass(p) {
+  if (p === 'Zonaprop') return 'portal-zp';
+  if (p === 'Argenprop') return 'portal-ap';
+  if (p === 'Mashogar') return 'portal-mh';
+  return 'portal-im';
+}
+function esNueva(v) { return v && v.startsWith(HOY); }
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderCard(p, nota = '') {
+  const fav  = favIds.has(p.id);
+  const nueva = esNueva(p.visto_en);
+  const img = p.imagen
+    ? `<img class="card-img" src="${p.imagen}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" loading="lazy"><div class="card-no-img" style="display:none">🏡</div>`
+    : `<div class="card-no-img">🏡</div>`;
+  return `
+  <div class="card ${fav ? 'es-fav' : ''}">
+    ${img}
+    <div class="card-body">
+      <span class="card-portal ${portalClass(p.portal)}">${p.portal}</span>
+      ${nueva ? '<span class="nueva-badge">NUEVA</span>' : ''}
+      <div class="card-titulo">${p.titulo}</div>
+      <div class="card-dir">📍 ${p.direccion}</div>
+      <div class="card-footer">
+        <div>
+          <div class="card-precio">${p.precio}</div>
+          ${p.m2 && p.m2 !== '?' ? `<div class="card-m2">${p.m2} m²</div>` : ''}
+        </div>
+        <span class="card-apto">✓ ${p.apto}</span>
+      </div>
+      <div class="card-actions">
+        <a class="btn-ver" href="${p.url}" target="_blank">Ver publicación</a>
+        <button class="btn-fav ${fav ? 'guardado' : ''}" data-id="${p.id}" onclick="toggleFav('${p.id}')">${fav ? '❤' : '🤍'}</button>
+      </div>
+      <div class="nota-wrap" style="display:${fav ? 'block' : 'none'}">
+        <textarea class="nota-fav" rows="2" placeholder="Anotá algo sobre esta propiedad..." oninput="guardarNota('${p.id}', this.value)">${nota}</textarea>
+      </div>
+    </div>
+  </div>`;
+}
+
+function render(props) {
+  const lista = document.getElementById('lista');
+  if (!props.length) {
+    lista.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><p>No hay propiedades todavía.<br>Tocá Actualizar para buscar.</p></div>`;
+    return;
+  }
+  lista.innerHTML = props.map(p => renderCard(p)).join('');
+}
+
+async function renderFavoritos() {
+  const lista = document.getElementById('lista-favs');
+  if (!claveActual) {
+    lista.innerHTML = `<div class="empty"><div class="empty-icon">🔑</div><p>Ingresá tu clave personal para ver tus guardados.</p><br><button onclick="pedirClave()" style="padding:10px 20px;border-radius:8px;border:none;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">Ingresar clave</button></div>`;
+    return;
+  }
+  lista.innerHTML = `<div class="loading">Cargando guardados...</div>`;
+  try {
+    const r = await fetch(`/api/favoritos/${encodeURIComponent(claveActual)}`);
+    const data = await r.json();
+    if (!data.length) {
+      lista.innerHTML = `<div class="empty"><div class="empty-icon">🤍</div><p>Todavía no guardaste nada.<br>Tocá el corazón en cualquier propiedad.</p></div>`;
+      return;
+    }
+    lista.innerHTML = data.map(p => renderCard(p, p.nota || '')).join('');
+  } catch {
+    lista.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><p>Error al cargar guardados.</p></div>`;
+  }
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function cambiarTab(tab) {
+  document.getElementById('tab-busqueda').classList.toggle('active', tab === 'busqueda');
+  document.getElementById('tab-favoritos').classList.toggle('active', tab === 'favoritos');
+  document.getElementById('panel-busqueda').classList.toggle('oculto', tab !== 'busqueda');
+  document.getElementById('panel-favoritos').classList.toggle('visible', tab === 'favoritos');
+  if (tab === 'favoritos') renderFavoritos();
+}
+
+function filtrar(portal, btn) {
+  filtroActual = portal;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  const f = portal === 'todos' ? todasLasProps : todasLasProps.filter(p => p.portal === portal);
+  render(f);
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function mostrarToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Carga ─────────────────────────────────────────────────────────────────────
+async function cargar() {
+  try {
+    const r = await fetch('/api/propiedades');
+    const data = await r.json();
+    todasLasProps = data;
+    document.getElementById('stat-total').textContent = data.length;
+    document.getElementById('stat-nuevas').textContent = data.filter(p => esNueva(p.visto_en)).length;
+    const f = filtroActual === 'todos' ? todasLasProps : todasLasProps.filter(p => p.portal === filtroActual);
+    render(f);
+  } catch {
+    document.getElementById('lista').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><p>Error al cargar. Revisá tu conexión.</p></div>`;
+  }
+}
+
+async function actualizar() {
+  const btn = document.querySelector('.fab');
+  const icon = document.getElementById('fab-icon');
+  const txt  = document.getElementById('fab-txt');
+  btn.disabled = true; icon.textContent = '⟳'; txt.textContent = 'Buscando...';
+  try {
+    const r = await fetch('/api/refresh', { method: 'POST' });
+    const data = await r.json();
+    await cargar();
+    mostrarToast(`✓ ${data.nuevas} nueva(s) · ${data.total} en total`);
+  } catch { mostrarToast('Error al actualizar'); }
+  btn.disabled = false; icon.textContent = '↻'; txt.textContent = 'Actualizar';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(function init() {
+  const saved = getClave();
+  if (saved) {
+    claveActual = saved;
+    document.getElementById('label-clave').textContent = saved;
+    document.getElementById('btn-clave-header').style.display = 'flex';
+    cargarFavIds();
+  } else {
+    // Mostrar modal al entrar por primera vez
+    setTimeout(pedirClave, 400);
+  }
+  cargar();
+})();
+</script>
+</body>
+</html>

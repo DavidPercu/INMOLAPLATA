@@ -32,37 +32,40 @@ def init_db():
     con.commit()
     con.close()
 
-def guardar_nuevas(props):
+def guardar_propiedades(props):
     con = sqlite3.connect(DB_PATH)
-    nuevas = []
+    nuevas_para_email = []
     ahora = datetime.now().strftime("%d/%m %H:%M")
     for p in props:
-        try:
-            con.execute("INSERT INTO propiedades VALUES (?,?,?,?,?,?,?)",
-                (p["id"], p["portal"], p["titulo"], p["precio"], p["direccion"], p["url"], ahora))
-            nuevas.append(p)
-        except sqlite3.IntegrityError:
-            pass
+        # Verificar si ya existe para saber si enviamos mail, pero ACTUALIZAMOS siempre
+        cursor = con.execute("SELECT id FROM propiedades WHERE id = ?", (p["id"],))
+        existe = cursor.fetchone()
+        
+        # INSERT OR REPLACE para que siempre se muestren todas las encontradas
+        con.execute("""
+            INSERT OR REPLACE INTO propiedades (id, portal, titulo, precio, direccion, url, visto_en)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (p["id"], p["portal"], p["titulo"], p["precio"], p["direccion"], p["url"], ahora))
+        
+        if not existe:
+            nuevas_para_email.append(p)
+            
     con.commit()
     con.close()
-    return nuevas
+    return nuevas_para_email
 
 # ── SCRAPERS (MEJORADOS) ──────────────────────────────────────────────────────
-# Headers que imitan a un navegador real para evitar bloqueos
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "es-ES,es;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1"
 }
 
 async def buscar_propiedades():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando escaneo de portales...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando escaneo completo de portales...")
     resultados = []
     
-    # Usamos un timeout más largo y límites de reintentos
     async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=40.0) as client:
         
         # 1. ARGENPROP
@@ -71,27 +74,20 @@ async def buscar_propiedades():
             r = await client.get(url_ap)
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, "html.parser")
-                # Selector actualizado para los items de lista
                 items = soup.select(".listing__item")
                 for item in items:
                     link_tag = item.select_one("a.card")
                     if link_tag and link_tag.has_attr('href'):
                         link = "https://www.argenprop.com" + link_tag["href"]
-                        precio = item.select_one(".card__price").text.strip() if item.select_one(".card__price") else "Consultar"
-                        direccion = item.select_one(".card__address").text.strip() if item.select_one(".card__address") else "La Plata"
-                        
                         resultados.append({
                             "id": f"ap_{hash(link)}", 
                             "portal": "Argenprop",
                             "titulo": "Casa/PH Venta", 
-                            "precio": precio,
-                            "direccion": direccion,
+                            "precio": item.select_one(".card__price").text.strip() if item.select_one(".card__price") else "Consultar",
+                            "direccion": item.select_one(".card__address").text.strip() if item.select_one(".card__address") else "La Plata",
                             "url": link
                         })
-            else:
-                print(f"[!] Argenprop devolvió error {r.status_code}")
-        except Exception as e: 
-            print(f"Error Argenprop: {e}")
+        except Exception as e: print(f"Error Argenprop: {e}")
 
         # 2. INMOBUSQUEDA
         try:
@@ -112,19 +108,21 @@ async def buscar_propiedades():
                             "direccion": "La Plata", 
                             "url": link
                         })
-        except Exception as e: 
-            print(f"Error Inmobusqueda: {e}")
+        except Exception as e: print(f"Error Inmobusqueda: {e}")
 
-    nuevas = guardar_nuevas(resultados)
+    nuevas = guardar_propiedades(resultados)
+    
+    # Solo enviamos email si hay ingresos realmente nuevos para no saturar
     if nuevas and EMAIL_PASS and EMAIL_FROM:
         enviar_notificacion(nuevas)
-    print(f"Fin del proceso. {len(resultados)} encontradas, {len(nuevas)} nuevas guardadas.")
+    
+    print(f"Fin del proceso. Mostrando {len(resultados)} propiedades encontradas.")
 
 def enviar_notificacion(nuevas):
     msg = MIMEMultipart()
     msg["Subject"] = f"🏠 {len(nuevas)} Nuevas Casas en La Plata"
     msg["From"], msg["To"] = EMAIL_FROM, EMAIL_TO
-    html = "<h3>Nuevos ingresos detectados:</h3><ul>"
+    html = f"<h3>Se detectaron {len(nuevas)} ingresos nuevos en el último escaneo:</h3><ul>"
     for p in nuevas:
         html += f"<li><b>{p['portal']}</b>: {p['precio']} - <a href='{p['url']}'>Ver publicación</a></li>"
     html += "</ul>"
@@ -133,8 +131,7 @@ def enviar_notificacion(nuevas):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(EMAIL_FROM, EMAIL_PASS)
             s.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-    except Exception as e: 
-        print(f"Error enviando mail: {e}")
+    except Exception as e: print(f"Error enviando mail: {e}")
 
 # ── INTERFAZ HTML ─────────────────────────────────────────────────────────────
 HTML_CONTENT = """
@@ -154,12 +151,15 @@ HTML_CONTENT = """
     <nav class="bg-slate-800 text-white p-4 shadow-lg sticky top-0 z-50">
         <div class="container mx-auto flex justify-between items-center">
             <h1 class="font-bold text-lg tracking-tight">🏠 Inmo<span class="text-blue-400">LaPlata</span></h1>
-            <button onclick="refresh()" id="btn" class="bg-blue-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-500 transition shadow-md">Actualizar</button>
+            <div class="flex items-center gap-4">
+                <span id="contador" class="text-xs bg-slate-700 px-2 py-1 rounded text-gray-300">Cargando...</span>
+                <button onclick="refresh()" id="btn" class="bg-blue-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-500 transition shadow-md">Actualizar</button>
+            </div>
         </div>
     </nav>
     <div class="container mx-auto p-4 max-w-5xl">
         <div id="lista" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div class="col-span-full text-center py-20 text-gray-400">Buscando casas nuevas...</div>
+            <div class="col-span-full text-center py-20 text-gray-400">Buscando propiedades disponibles...</div>
         </div>
     </div>
     <script>
@@ -168,8 +168,12 @@ HTML_CONTENT = """
                 const r = await fetch('/api/propiedades');
                 const data = await r.json();
                 const container = document.getElementById('lista');
+                const contador = document.getElementById('contador');
+                
+                contador.innerText = `${data.length} propiedades encontradas`;
+
                 if (data.length === 0) {
-                    container.innerHTML = '<p class="col-span-full text-center py-20 text-gray-400">Presiona Actualizar para buscar propiedades por primera vez.</p>';
+                    container.innerHTML = '<p class="col-span-full text-center py-20 text-gray-400">Presiona Actualizar para buscar.</p>';
                     return;
                 }
                 container.innerHTML = data.map(p => `
@@ -183,7 +187,7 @@ HTML_CONTENT = """
                             <p class="text-[11px] text-gray-500">${p.direccion}</p>
                         </div>
                         <div class="mt-6 flex justify-between items-center pt-4 border-t border-gray-50">
-                            <span class="text-[10px] text-gray-300 font-medium">${p.visto_en}</span>
+                            <span class="text-[10px] text-gray-300 font-medium">Visto: ${p.visto_en}</span>
                             <a href="${p.url}" target="_blank" class="text-xs font-bold text-blue-500 hover:text-blue-700 underline decoration-2 underline-offset-4">VER FICHA →</a>
                         </div>
                     </div>`).join('');
@@ -193,7 +197,8 @@ HTML_CONTENT = """
             const btn = document.getElementById('btn');
             btn.innerText = '⏳ Buscando...'; btn.disabled = true;
             await fetch('/api/refresh', {method: 'POST'});
-            setTimeout(() => { load(); btn.innerText = 'Actualizar'; btn.disabled = false; }, 6000);
+            // Esperamos un poco más para que el scraper termine de llenar la DB
+            setTimeout(() => { load(); btn.innerText = 'Actualizar'; btn.disabled = false; }, 8000);
         }
         load();
         setInterval(load, 60000);
@@ -226,7 +231,8 @@ async def home():
 async def get_props():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
-    res = con.execute("SELECT * FROM propiedades ORDER BY visto_en DESC LIMIT 150").fetchall()
+    # Obtenemos todas, ordenadas por la última vez que fueron vistas
+    res = con.execute("SELECT * FROM propiedades ORDER BY visto_en DESC").fetchall()
     con.close()
     return [dict(r) for r in res]
 

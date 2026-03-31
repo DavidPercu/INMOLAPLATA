@@ -14,11 +14,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from bs4 import BeautifulSoup
 
 # ── CONFIGURACIÓN ─────────────────────────────────────────────────────────────
-# En Render, estas variables se cargan desde el panel 'Environment'
-# En PC local, puedes editarlas aquí mismo entre las comillas
 EMAIL_FROM    = os.getenv("EMAIL_FROM", "tu_correo@gmail.com")
 EMAIL_TO      = os.getenv("EMAIL_TO", "tu_correo@gmail.com")
-EMAIL_PASS    = os.getenv("EMAIL_PASS", "") # Tu clave de aplicación de 16 letras
+EMAIL_PASS    = os.getenv("EMAIL_PASS", "") 
 DB_PATH       = "propiedades.db"
 CHECK_MINUTES = 45 
 
@@ -49,57 +47,84 @@ def guardar_nuevas(props):
     con.close()
     return nuevas
 
-# ── SCRAPERS ──────────────────────────────────────────────────────────────────
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+# ── SCRAPERS (MEJORADOS) ──────────────────────────────────────────────────────
+# Headers que imitan a un navegador real para evitar bloqueos
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1"
+}
 
 async def buscar_propiedades():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando escaneo de portales...")
     resultados = []
-    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=35) as client:
+    
+    # Usamos un timeout más largo y límites de reintentos
+    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=40.0) as client:
         
         # 1. ARGENPROP
         try:
-            r = await client.get("https://www.argenprop.com/casas-y-ph/venta/la-plata?precioMax=100000&moneda=dolares&aptoBanco=true")
-            soup = BeautifulSoup(r.text, "html.parser")
-            for item in soup.select(".listing__item"):
-                link_tag = item.select_one("a")
-                if link_tag and link_tag.has_attr('href'):
-                    link = "https://www.argenprop.com" + link_tag["href"]
-                    resultados.append({
-                        "id": f"ap_{hash(link)}", "portal": "Argenprop",
-                        "titulo": "Casa/PH LP", 
-                        "precio": item.select_one(".card__price").text.strip() if item.select_one(".card__price") else "Consultar",
-                        "direccion": item.select_one(".card__address").text.strip() if item.select_one(".card__address") else "La Plata",
-                        "url": link
-                    })
-        except Exception as e: print(f"Error Argenprop: {e}")
+            url_ap = "https://www.argenprop.com/casas-y-ph/venta/la-plata?precioMax=100000&moneda=dolares&aptoBanco=true"
+            r = await client.get(url_ap)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                # Selector actualizado para los items de lista
+                items = soup.select(".listing__item")
+                for item in items:
+                    link_tag = item.select_one("a.card")
+                    if link_tag and link_tag.has_attr('href'):
+                        link = "https://www.argenprop.com" + link_tag["href"]
+                        precio = item.select_one(".card__price").text.strip() if item.select_one(".card__price") else "Consultar"
+                        direccion = item.select_one(".card__address").text.strip() if item.select_one(".card__address") else "La Plata"
+                        
+                        resultados.append({
+                            "id": f"ap_{hash(link)}", 
+                            "portal": "Argenprop",
+                            "titulo": "Casa/PH Venta", 
+                            "precio": precio,
+                            "direccion": direccion,
+                            "url": link
+                        })
+            else:
+                print(f"[!] Argenprop devolvió error {r.status_code}")
+        except Exception as e: 
+            print(f"Error Argenprop: {e}")
 
         # 2. INMOBUSQUEDA
         try:
-            r = await client.get("https://www.inmobusqueda.com.ar/casa-venta-la-plata-hasta-100000-dolares.html")
-            soup = BeautifulSoup(r.text, "html.parser")
-            for item in soup.select(".resultado-busqueda"):
-                link_tag = item.select_one("a")
-                if link_tag and link_tag.has_attr('href'):
-                    link = link_tag["href"]
-                    resultados.append({
-                        "id": f"in_{hash(link)}", "portal": "Inmobusqueda",
-                        "titulo": item.select_one(".titulo").text.strip() if item.select_one(".titulo") else "Casa",
-                        "precio": item.select_one(".precio").text.strip() if item.select_one(".precio") else "Consultar",
-                        "direccion": "La Plata", "url": link
-                    })
-        except Exception as e: print(f"Error Inmobusqueda: {e}")
+            url_in = "https://www.inmobusqueda.com.ar/casa-venta-la-plata-hasta-100000-dolares.html"
+            r = await client.get(url_in)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                items = soup.select(".resultado-busqueda")
+                for item in items:
+                    link_tag = item.select_one("a")
+                    if link_tag and link_tag.has_attr('href'):
+                        link = link_tag["href"]
+                        resultados.append({
+                            "id": f"in_{hash(link)}", 
+                            "portal": "Inmobusqueda",
+                            "titulo": item.select_one(".titulo").text.strip() if item.select_one(".titulo") else "Casa",
+                            "precio": item.select_one(".precio").text.strip() if item.select_one(".precio") else "Consultar",
+                            "direccion": "La Plata", 
+                            "url": link
+                        })
+        except Exception as e: 
+            print(f"Error Inmobusqueda: {e}")
 
     nuevas = guardar_nuevas(resultados)
-    if nuevas and EMAIL_PASS:
+    if nuevas and EMAIL_PASS and EMAIL_FROM:
         enviar_notificacion(nuevas)
-    print(f"Fin del proceso. {len(nuevas)} propiedades nuevas.")
+    print(f"Fin del proceso. {len(resultados)} encontradas, {len(nuevas)} nuevas guardadas.")
 
 def enviar_notificacion(nuevas):
     msg = MIMEMultipart()
     msg["Subject"] = f"🏠 {len(nuevas)} Nuevas Casas en La Plata"
     msg["From"], msg["To"] = EMAIL_FROM, EMAIL_TO
-    html = "<h3>Ingresos recientes:</h3><ul>"
+    html = "<h3>Nuevos ingresos detectados:</h3><ul>"
     for p in nuevas:
         html += f"<li><b>{p['portal']}</b>: {p['precio']} - <a href='{p['url']}'>Ver publicación</a></li>"
     html += "</ul>"
@@ -108,9 +133,10 @@ def enviar_notificacion(nuevas):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(EMAIL_FROM, EMAIL_PASS)
             s.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
-    except Exception as e: print(f"Error enviando mail: {e}")
+    except Exception as e: 
+        print(f"Error enviando mail: {e}")
 
-# ── INTERFAZ HTML (Embebida para evitar errores 404 en Render) ────────────────
+# ── INTERFAZ HTML ─────────────────────────────────────────────────────────────
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="es">
@@ -143,7 +169,7 @@ HTML_CONTENT = """
                 const data = await r.json();
                 const container = document.getElementById('lista');
                 if (data.length === 0) {
-                    container.innerHTML = '<p class="col-span-full text-center py-20 text-gray-400">Presiona Actualizar para buscar propiedades.</p>';
+                    container.innerHTML = '<p class="col-span-full text-center py-20 text-gray-400">Presiona Actualizar para buscar propiedades por primera vez.</p>';
                     return;
                 }
                 container.innerHTML = data.map(p => `
@@ -167,10 +193,10 @@ HTML_CONTENT = """
             const btn = document.getElementById('btn');
             btn.innerText = '⏳ Buscando...'; btn.disabled = true;
             await fetch('/api/refresh', {method: 'POST'});
-            setTimeout(() => { load(); btn.innerText = 'Actualizar'; btn.disabled = false; }, 5000);
+            setTimeout(() => { load(); btn.innerText = 'Actualizar'; btn.disabled = false; }, 6000);
         }
         load();
-        setInterval(load, 45000);
+        setInterval(load, 60000);
     </script>
 </body>
 </html>
@@ -211,6 +237,5 @@ async def manual_search():
 
 if __name__ == "__main__":
     import uvicorn
-    # Puerto dinámico para Render o 8000 local
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

@@ -19,20 +19,12 @@ DB_PATH       = "propiedades.db"
 CHECK_MINUTES = 45
 
 # ── PARÁMETROS DE BÚSQUEDA (MercadoLibre API oficial) ─────────────────────────
-# ID de La Plata en MercadoLibre Argentina
-# Endpoint: https://api.mercadolibre.com/sites/MLA/search
+# La Plata bounding box: lat -34.95 a -34.85 / lon -58.05 a -57.88
+# category MLA1466 = Casas (subcategoría correcta de Inmuebles MLA1459)
+# La API pública de search no acepta filtro de moneda directo;
+# filtramos por precio en USD manualmente después de recibir los resultados.
 MELI_SEARCH_URL = "https://api.mercadolibre.com/sites/MLA/search"
-MELI_PARAMS = {
-    "category": "MLA1459",        # Casas en venta
-    "state": "TUxBUEJVRTdadGE",  # Buenos Aires
-    "city": "TUxBQ0xQTGEzMjg3",  # La Plata
-    "price_min": 1,
-    "price_max": 100000,
-    "currency": "USD",
-    "condition": "not_specified", # nuevas y usadas
-    "limit": 50,
-    "offset": 0,
-}
+PRECIO_MAX_USD = 100000
 
 # ── BASE DE DATOS ─────────────────────────────────────────────────────────────
 def init_db():
@@ -81,6 +73,25 @@ def guardar_propiedades(props):
     return nuevas_para_email
 
 # ── SCRAPER VÍA API OFICIAL DE MERCADOLIBRE ───────────────────────────────────
+async def fetch_meli_page(client, offset: int) -> list:
+    """
+    Busca casas en venta en La Plata por bounding box geográfico.
+    category MLA1466 = Casas | item_location filtra por coordenadas de La Plata.
+    """
+    params = {
+        "category": "MLA1466",   # Casas (subcategoría correcta)
+        # Bounding box La Plata: lat -34.95/-34.82, lon -58.05/-57.88
+        "item_location": "lat:-34.95_-34.82,lon:-58.05_-57.88",
+        "limit": 50,
+        "offset": offset,
+    }
+    r = await client.get(MELI_SEARCH_URL, params=params)
+    r.raise_for_status()
+    data = r.json()
+    print(f"  offset={offset} → HTTP {r.status_code}, resultados: {len(data.get('results', []))}, total: {data.get('paging', {}).get('total', '?')}")
+    return data.get("results", []), data.get("paging", {}).get("total", 0)
+
+
 async def buscar_propiedades():
     ts = datetime.now().strftime('%H:%M:%S')
     print(f"[{ts}] Consultando API de MercadoLibre...")
@@ -88,42 +99,46 @@ async def buscar_propiedades():
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            # Página 1 (offset 0)
-            r = await client.get(MELI_SEARCH_URL, params=MELI_PARAMS)
-            r.raise_for_status()
-            data = r.json()
-            items = data.get("results", [])
-            print(f"MercadoLibre: {len(items)} resultados (pág 1)")
+            items, total = await fetch_meli_page(client, 0)
 
-            # Página 2 si hay más resultados
-            total = data.get("paging", {}).get("total", 0)
-            if total > 50:
-                params2 = {**MELI_PARAMS, "offset": 50}
-                r2 = await client.get(MELI_SEARCH_URL, params=params2)
-                if r2.status_code == 200:
-                    items += r2.json().get("results", [])
-                    print(f"MercadoLibre: {len(items)} resultados acumulados (pág 2)")
+            # Hasta 3 páginas (150 resultados)
+            for offset in [50, 100]:
+                if total > offset:
+                    page_items, _ = await fetch_meli_page(client, offset)
+                    items += page_items
+
+            print(f"Total ítems obtenidos antes de filtrar: {len(items)}")
 
             for item in items:
-                # Extraer atributos útiles
-                attrs = {a["id"]: a.get("value_name", "—") for a in item.get("attributes", [])}
-                metros    = attrs.get("TOTAL_AREA", attrs.get("COVERED_AREA", "—"))
-                ambientes = attrs.get("ROOMS", "—")
-                banco_raw = attrs.get("FINANCING", "")
-                apto_banco = "✓ Sí" if banco_raw and banco_raw.lower() not in ("no", "false", "") else "—"
-
                 precio_val = item.get("price")
-                moneda = item.get("currency_id", "USD")
-                precio_str = f"{moneda} {precio_val:,.0f}" if precio_val else "Consultar"
+                moneda = item.get("currency_id", "")
 
-                direccion = item.get("location", {}).get("address_line") or \
-                            item.get("location", {}).get("city", {}).get("name") or \
-                            "La Plata"
+                # Filtrar: sólo USD hasta PRECIO_MAX_USD
+                if moneda != "USD":
+                    continue
+                if precio_val is None or precio_val > PRECIO_MAX_USD:
+                    continue
+
+                attrs = {a["id"]: a.get("value_name", "—") for a in item.get("attributes", [])}
+                metros    = attrs.get("TOTAL_AREA") or attrs.get("COVERED_AREA") or "—"
+                ambientes = attrs.get("ROOMS", "—")
+                banco_raw = attrs.get("FINANCING", "") or ""
+                apto_banco = "✓ Sí" if banco_raw.lower() not in ("", "no", "false") else "—"
+
+                precio_str = f"USD {precio_val:,.0f}"
+
+                loc = item.get("location") or {}
+                direccion = (
+                    loc.get("address_line")
+                    or (loc.get("neighborhood") or {}).get("name")
+                    or (loc.get("city") or {}).get("name")
+                    or "La Plata"
+                )
 
                 resultados.append({
                     "id": str(item["id"]),
                     "portal": "MercadoLibre",
-                    "titulo": item.get("title", "Propiedad en venta"),
+                    "titulo": item.get("title", "Casa en venta"),
                     "precio": precio_str,
                     "direccion": direccion,
                     "url": item.get("permalink", ""),
@@ -133,8 +148,12 @@ async def buscar_propiedades():
                     "apto_banco": apto_banco,
                 })
 
+            print(f"Después de filtrar por USD ≤ {PRECIO_MAX_USD}: {len(resultados)} propiedades")
+
         except Exception as e:
+            import traceback
             print(f"Error MercadoLibre API: {e}")
+            traceback.print_exc()
 
     nuevas = guardar_propiedades(resultados)
     print(f"Escaneo finalizado. {len(resultados)} totales, {len(nuevas)} nuevas.")
@@ -143,6 +162,7 @@ async def buscar_propiedades():
         enviar_notificacion(nuevas)
 
     return len(resultados)
+
 
 # ── EMAIL ─────────────────────────────────────────────────────────────────────
 def enviar_notificacion(nuevas):
